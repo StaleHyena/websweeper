@@ -1,6 +1,6 @@
 @font-face {
   font-family: vt323;
-  src: url("./f.ttf");
+  src: url("./VT323.ttf");
 }
 #board-container {
   font-size: 80px;

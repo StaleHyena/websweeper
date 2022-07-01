@@ -14,17 +14,6 @@ use serde::Serialize;
 use crate::minesweeper;
 use crate::livepos;
 
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub cert: String,
-    pub pkey: String,
-    pub index_pg: String,
-    pub room_pg: String,
-    pub client_code: String,
-    pub stylesheet: String,
-    pub socket_addr: SocketAddr,
-}
-
 #[derive(Debug, Serialize, Clone)]
 pub struct RoomConf {
     pub name: String,
@@ -83,14 +72,19 @@ impl std::borrow::Borrow<str> for RoomId {
 }
 
 impl RoomId {
-    pub fn new_in<T>(map: &HashMap<RoomId, T>) -> Self {
+    pub fn new_among<'a, I>(existing: I) -> Self
+        where
+            I: IntoIterator<Item = &'a RoomId>,
+            <I as IntoIterator>::IntoIter: Clone,
+    {
         use rand::{ thread_rng, Rng, distributions::Alphanumeric };
         let id = RoomId(thread_rng()
             .sample_iter(&Alphanumeric)
             .take(16)
             .map(char::from)
             .collect::<String>());
-        if map.contains_key(&id) { RoomId::new_in(map) }
+        let existing = existing.into_iter();
+        if existing.clone().any(|x| *x == id) { Self::new_among(existing) }
         else { id }
     }
 }

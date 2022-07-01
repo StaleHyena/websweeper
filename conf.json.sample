@@ -1,4 +1,19 @@
 {
-  "area_limit": 22500,
-  "room_limit": 16
+  "paths": {
+    "cert": "cert.pem",
+    "pkey": "cert.rsa",
+    "assets": "assets/",
+    "index_page": "assets/index.html",
+    "room_page": "assets/room.html"
+  },
+
+  "server": {
+    "listen_on": "0.0.0.0:31235"
+  },
+
+  "limits": {
+    "board_area": 22500,
+    "room_slots": 16,
+    "form_size": 4096
+  }
 }
