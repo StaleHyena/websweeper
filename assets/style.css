@@ -1,0 +1,86 @@
+@font-face {
+  font-family: vt323;
+  src: url("./f.ttf");
+}
+#board-container {
+  font-size: 80px;
+  line-height: 48px;
+  margin: 2vw;
+  position: relative;
+  top: 0px;
+  left 0px;
+}
+#cursor-frame {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+}
+
+body {
+  font-family: vt323, monospace;
+  font-size: 20pt;
+  background-color: black;
+  color: white;
+  margin: 0;
+}
+.unsel {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+.cursor {
+  font-size: 20pt;
+  padding: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.cursor * {
+  margin: 0 0;
+}
+.cursor-name {
+  background-color: #000000c0;
+  padding: 0 0.1em;
+  line-height: initial;
+}
+
+a {
+  text-decoration: none;
+  color: #8b8be8;
+}
+
+#miscinfo {
+  flex-grow: 1;
+}
+
+.statusline {
+  display: flex;
+  position: sticky;
+  background-color: black;
+  width: 96vw;
+  padding: 0 2vw;
+  bottom: 0px;
+  left: 0px;
+}
+.statusline * {
+  margin: 0.5em 2em 0 0;
+}
+
+/* i was today years old when i learned that css selector declaration order matters */
+/* cent should come after statusline, so it overwrites statusline's props */
+.cent {
+  width: 80vw;
+  margin: 0 auto;
+}
+
+span, h1, h4 {
+  margin: 0 auto;
+}
+
+h4 { margin-left: 1em; }
+
+a :visited {
+  color: inherit;
+}

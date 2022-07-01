@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>websweeper</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="./s.css">
+  </head>
+  <body>
+    <div class="cent">
+      <div id="rlist"></div>
+      <span id="rspace"></span>
+    </div>
+    <form method="post" action="r" class="cent">
+      <fieldset>
+        <legend>-={ Create a new room }=-</legend>
+        <label>room name&nbsp;<input name="rname" type="text" autofocus></label><br>
+        <label>
+          board dimensions
+          <input name="rwidth" type="number" value="30" required>
+          x
+          <input name="rheight" type="number" value="20" required><br>
+          where <input name="rration" type="number" value="1" required>
+          in every <input name="rratiod" type="number" value="8" required>
+          tiles are mines
+        </label><br>
+        <label>public, ie. shown in the lobby <input name="raccess" type="checkbox" checked></label><br>
+        <label>safe first move (if possible) <input name="ralwayssafe1move" type="checkbox" checked></label><br>
+        <label>player limit <input name="rlimit" type="number" value="32"></label><br>
+        <button id="createbtn">create</button>
+      </fieldset>
+    </form>
+    <div class="statusline cent">
+      <p id="ident-name"></p>
+      <a id="ident-clr" href="javascript:clear_ident();">clear identity</a>
+    </div>
+    <script>
+      let rlist = {
+              elem: document.getElementById('rlist'),
+              map: new Map(),
+      };
+      let rspace = {
+              elem: document.getElementById('rspace'),
+              num: NaN,
+              txt: undefined,
+      };
+
+      function fetch_info(callback) {
+        fetch('rlist').then(r => r.json()).then(info => {
+          let rooms = info[0];
+          let pcounts = info[1];
+          Object.keys(rooms).forEach(id => {
+            let room = rlist.map.get(id);
+            if (!room) { room = { init: false }; }
+            let rinfo = JSON.parse(rooms[id]);
+            room.name = rinfo.name;
+            room.pcount = Number(pcounts[id][0]);
+            room.pcapacity = Number(pcounts[id][1]);
+            room.board_conf = rinfo.board_conf;
+            rlist.map.set(id, room);
+          });
+          callback();
+        });
+        fetch("rspace").then(resp => resp.text()).then(roomspace => {
+          rspace.num = Number(roomspace);
+          callback();
+        })
+      }
+
+      function render_info() {
+        rlist.map.forEach((room, id) => {
+          let full = room.pcount == room.pcapacity;
+          if (!room.init) {
+            let entry = (full)? document.createElement('span') : document.createElement('a');
+            room.h1 = document.createElement("h1");
+            room.h1_txt = document.createTextNode("");
+            room.h1.appendChild(room.h1_txt);
+            room.h4 = document.createElement("h4");
+            room.h4.appendChild(document.createTextNode(
+                    `${room.board_conf.w} by ${room.board_conf.h} with
+                    ${room.board_conf.mine_ratio[0]} in every ${room.board_conf.mine_ratio[1]} tiles mined`
+              ));
+            entry.append(room.h1);
+            entry.append(room.h4);
+            entry.href = 'room/' + id;
+            rlist.elem.append(entry);
+            rlist.elem.append(document.createElement('br'));
+            room.init = true;
+          }
+          let ptxt = `${room.pcount}/${room.pcapacity} players` + ((full)? " (full)" : "");
+          room.h1_txt.textContent = `> ${room.name} — ${ptxt}`;
+
+        });
+        if (!rspace.txt) {
+          rspace.txt = document.createTextNode("");
+          rspace.elem.appendChild(rspace.txt);
+        }
+        if (rspace.num == 0) {
+          rspace.txt.textContent = "all room slots filled, when a room empties it can be replaced by a new one";
+          document.getElementById("createbtn").disabled = "disabled";
+        } else {
+          document.getElementById("createbtn").disabled = "";
+          if (rspace.num == 1) {
+            rspace.txt.textContent = "there is 1 available room slot";
+          } else if (rspace.num > 1) {
+            rspace.txt.textContent = `there are ${rspace.num} available room slots`;
+          }
+        }
+      }
+
+      (function refresh_info() {
+        fetch_info(render_info);
+        setTimeout(function() {
+          refresh_info();
+        }, 2000);
+      })();
+
+      function clear_ident() {
+        localStorage.removeItem("identity");
+        document.location.reload();
+      }
+      let ident = JSON.parse(localStorage.getItem("identity"));
+      let ident_elem = document.getElementById("ident-name");
+      if (ident == null) {
+        ident_elem.innerHTML = "no identity yet";
+        document.getElementById("ident-clr").style.display = "none";
+      } else {
+        ident_elem.innerHTML = `you are <span style="color: ${ident.clr}">${ident.name}</span>`;
+      }
+    </script>
+  </body>
+</html>
