@@ -65,7 +65,7 @@ function connect() {
             let x = pdat[1][0];
             let y = pdat[1][1];
             let curs = room.cursors.get(oid);
-            if (curs != undefined) {
+            if (oid != player.uid && curs != undefined) {
               movCursor(curs, x, y);
             } else {
               console.log("livepos sys incoherent");

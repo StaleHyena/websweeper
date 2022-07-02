@@ -14,6 +14,7 @@
   "limits": {
     "board_area": 22500,
     "room_slots": 16,
-    "form_size": 4096
+    "form_size": 4096,
+    "inbound_packet_size": 2048
   }
 }
