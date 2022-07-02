@@ -35,6 +35,7 @@ struct ConfLimits {
     pub board_area: usize,
     pub room_slots: usize,
     pub form_size: u64,
+    pub inbound_packet_size: usize,
 }
 #[derive(Deserialize)]
 struct Conf {
@@ -106,7 +107,6 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
 
         post().and(path("r")).and(body::content_length_limit(conf.limits.form_size)).and(body::form())
         .and_then(move |rinfo: HashMap<String, String>| {
-            println!("{:?}", rinfo);
             let rooms = rooms.clone();
             let pubs = pubs.clone();
             let conf = conf.clone();
@@ -131,6 +131,7 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
                         if access {
                             pubs.write().await.insert(uid.clone(), serde_json::to_string(&room.conf).unwrap());
                         }
+                        println!("New room: {:?}", room.conf);
                         rooms.insert(uid.clone(), Arc::new(RwLock::new(room)));
 
                         Ok(
@@ -150,6 +151,8 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
         let rooms_ws = rooms.clone();
         let rooms_lobby = rooms.clone();
         let prefix = get().and(path!("room" / String / ..));
+        let max_inbound_packet_size = conf.limits.inbound_packet_size;
+        let room_path = conf.paths.room_page.clone();
 
         // Fixme: better errors
         prefix.and(path!("ws"))
@@ -163,7 +166,7 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
                         Some(r) => {
                             println!("{id} I: conn from {saddr:?}");
                             Ok(websocket.on_upgrade(move |socket| {
-                                conn::lobby(socket, saddr.expect("socket without address"), (id,r))
+                                conn::setup_conn(socket, saddr.expect("socket without address"), (id,r), max_inbound_packet_size)
                             }))
                         },
                         None => {
@@ -174,7 +177,7 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
                 }
             })
             .or(prefix.and(path::end())
-                .and(fs::file(conf.paths.room_page.clone()))
+                .and(fs::file(room_path))
                 .then(move |id: String, f: fs::File| {
                     let rooms = rooms_lobby.clone();
                     async move {
@@ -291,19 +294,20 @@ async fn empty_rooms(rooms: &RoomMap) -> Vec<RoomId> {
 }
 
 fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> Result<(types::Room, bool), Rejection> {
-    if let (Some(w),Some(h),Some(num),Some(denom),access,asfm,limit) = (
-        rinfo.get("rwidth").and_then(|wt| wt.parse::<NonZeroUsize>().ok()),
-        rinfo.get("rheight").and_then(|ht| ht.parse::<NonZeroUsize>().ok()),
-        rinfo.get("rration").and_then(|nt| nt.parse::<usize>().ok()),
-        rinfo.get("rratiod").and_then(|dt| dt.parse::<NonZeroUsize>().ok()),
-        rinfo.get("raccess"),
-        rinfo.get("ralwayssafe1move"),
-        rinfo.get("rlimit").and_then(|l| l.parse::<usize>().ok()),
+    if let (Some(w),Some(h),Some(num),Some(denom),public,asfm,rborders,Some(limit)) = (
+        rinfo.get("bwidth").and_then(|w| w.parse::<NonZeroUsize>().ok()),
+        rinfo.get("bheight").and_then(|h| h.parse::<NonZeroUsize>().ok()),
+        rinfo.get("mineratio-n").and_then(|n| n.parse::<usize>().ok()),
+        rinfo.get("mineratio-d").and_then(|d| d.parse::<NonZeroUsize>().ok()),
+        rinfo.get("public").map(|s| s == "on").unwrap_or(false),
+        rinfo.get("rborders").map(|s| s == "on").unwrap_or(false),
+        rinfo.get("allsafe1move").map(|s| s == "on").unwrap_or(false),
+        rinfo.get("limit").and_then(|l| l.parse::<NonZeroUsize>().ok()),
         ) {
         if w.get()*h.get() > conf.limits.board_area {
             return Err(warp::reject::custom(BoardTooBig))
         }
-        let board_conf = minesweeper::BoardConf { w, h, mine_ratio: (num,denom), always_safe_first_move: asfm.is_some() };
+        let board_conf = minesweeper::BoardConf { w, h, mine_ratio: (num,denom), always_safe_first_move: asfm, revealed_borders: rborders };
         let name = {
             let n = rinfo.get("rname").unwrap().to_owned();
             if n.is_empty() { uid.to_string() } else { n }
@@ -319,8 +323,8 @@ fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> R
 
         let room_conf = RoomConf {
             name,
-            player_cap: match limit { Some(i) => i, None => usize::MAX },
-            public: access.is_some(),
+            player_cap: limit,
+            public,
             board_conf,
         };
         Ok((Room {
@@ -330,7 +334,7 @@ fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> R
             cmd_stream: cmd_tx,
             livepos_driver: livepos_handle,
             pos_stream: pos_tx,
-        }, access.is_some()))
+        }, public))
     } else { Err(warp::reject::custom(BadFormData)) }
 }
 

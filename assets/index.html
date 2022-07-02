@@ -17,16 +17,17 @@
         <label>room name&nbsp;<input name="rname" type="text" autofocus></label><br>
         <label>
           board dimensions
-          <input name="rwidth" type="number" value="30" required>
+          <input name="bwidth" type="number" value="30" required>
           x
-          <input name="rheight" type="number" value="20" required><br>
-          where <input name="rration" type="number" value="1" required>
-          in every <input name="rratiod" type="number" value="8" required>
+          <input name="bheight" type="number" value="20" required><br>
+          where <input name="mineratio-n" type="number" value="1" required>
+          in every <input name="mineratio-d" type="number" value="8" required>
           tiles are mines
         </label><br>
-        <label>public, ie. shown in the lobby <input name="raccess" type="checkbox" checked></label><br>
-        <label>safe first move (if possible) <input name="ralwayssafe1move" type="checkbox" checked></label><br>
-        <label>player limit <input name="rlimit" type="number" value="32"></label><br>
+        <label>public, ie. shown in the lobby <input name="public" type="checkbox" checked></label><br>
+        <label>safe first move (if possible) <input name="allsafe1move" type="checkbox" checked></label><br>
+        <label>revealed borders <input name="rborders" type="checkbox"></label><br>
+        <label>player limit <input name="limit" type="number" value="32"></label><br>
         <button id="createbtn">create</button>
       </fieldset>
     </form>

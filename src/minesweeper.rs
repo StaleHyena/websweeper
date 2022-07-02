@@ -38,6 +38,7 @@ pub struct BoardConf {
     /// mines/tiles, expressed as (numerator, denominator)
     pub mine_ratio: (usize,NonZeroUsize),
     pub always_safe_first_move: bool,
+    pub revealed_borders: bool,
 }
 
 impl std::fmt::Display for BoardConf {
@@ -100,6 +101,7 @@ impl Game {
         if self.phase == Phase::FirstMoveFail {
             let winnable = self.board.mine_count < (self.board.width.get() * self.board.height.get());
             if winnable {
+                self.board.hidden_tiles += 1;
                 self.board.move_mine_elsewhere(m.pos);
                 self.phase = Phase::Run;
                 self = self.act(m);
@@ -113,10 +115,12 @@ impl Game {
     }
 }
 impl Board {
-    pub fn new(conf: BoardConf) -> Self {
+    pub fn new(mut conf: BoardConf) -> Self {
         let (w,h) = (conf.w,conf.h);
         let area = w.get()*h.get();
-        let mine_count = ((conf.mine_ratio.0 * area) / conf.mine_ratio.1.get()).clamp(0, area);
+        if w.get() < 3 || h.get() < 3 { conf.revealed_borders = false; }
+        let mined_area = area - if conf.revealed_borders { 2*(w.get()-1) + 2*(h.get()-1) } else { 0 };
+        let mine_count = ((conf.mine_ratio.0 * mined_area) / conf.mine_ratio.1.get()).clamp(0, mined_area);
         let b = Board {
             data: [HIDDEN_BIT].repeat(area),
             width: w,
@@ -124,14 +128,27 @@ impl Board {
             hidden_tiles: area,
             mine_count,
         };
-        b.spread_mines(mine_count)
+        if conf.revealed_borders {
+            let (w,h) = (w.get(),h.get());
+            let mut b = b.spread_mines(mine_count, true);
+            for x in 0..w {
+                b = b.reveal((x,   0)).0;
+                b = b.reveal((x, h-1)).0;
+            }
+            for y in 1..h-1 {
+                b = b.reveal((  0, y)).0;
+                b = b.reveal((w-1, y)).0;
+            }
+            b
+        } else { b.spread_mines(mine_count, false) }
     }
-    pub fn spread_mines(mut self, mut count: usize) -> Self {
+    pub fn spread_mines(mut self, mut count: usize, without_edges: bool) -> Self {
         let mut rng = thread_rng();
         let w = self.width.get();
         let h = self.height.get();
+        let (wr,hr) = if without_edges { ((1,w-1),(1,h-1)) } else { ((0,w),(0,h)) };
         while count > 0 {
-            let randpos: (usize, usize) = (rng.sample(Uniform::new(0,w)), rng.sample(Uniform::new(0,h)));
+            let randpos: (usize, usize) = (rng.sample(Uniform::new(wr.0, wr.1)), rng.sample(Uniform::new(hr.0, hr.1)));
             let o = self.pos_to_off_unchecked(randpos);
             if self.data[o] == MINED { continue }
             else {

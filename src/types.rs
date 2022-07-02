@@ -7,6 +7,7 @@ use std::{
     },
     fmt::Display,
     ops::{ Deref, DerefMut },
+    num::NonZeroUsize,
 };
 use warp::ws::Message;
 use tokio::sync::RwLock;
@@ -17,7 +18,7 @@ use crate::livepos;
 #[derive(Debug, Serialize, Clone)]
 pub struct RoomConf {
     pub name: String,
-    pub player_cap: usize,
+    pub player_cap: NonZeroUsize,
     pub public: bool,
     pub board_conf: minesweeper::BoardConf,
 }
@@ -38,7 +39,7 @@ pub enum MetaMove {
     Reset,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Conn {
     pub tx: tokio::sync::mpsc::UnboundedSender<Message>,
     pub addr: SocketAddr,
