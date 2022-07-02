@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 #[tokio::main]
 async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
     let conf = Arc::new(conf);
-    let rooms: RoomMap = Arc::new(RwLock::new(HashMap::new()));
+    let rooms = Arc::new(RwLock::new(RoomMap::new()));
     let public_rooms = Arc::new(RwLock::new(HashMap::new()));
     use warp::*;
 
@@ -60,6 +60,7 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
     let listing = {
         let rooms = rooms.clone();
         let pubs = public_rooms.clone();
+
         path!("rlist").and_then(move || {
             let rooms = rooms.clone();
             let pubs = pubs.clone();
@@ -91,8 +92,9 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
             let r = rooms.clone();
             let conf = conf.clone();
             async move {
-                let empty_len = empty_rooms(r.clone()).await.len();
-                let space = conf.limits.room_slots - r.read().await.len() + empty_len;
+                let r = r.read().await;
+                let empty_len = empty_rooms(&r).await.len();
+                let space = conf.limits.room_slots - r.len() + empty_len;
                 Ok::<String, std::convert::Infallible>(space.to_string())
             }
         })
@@ -101,6 +103,7 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
         let rooms = rooms.clone();
         let pubs = public_rooms.clone();
         let conf = conf.clone();
+
         post().and(path("r")).and(body::content_length_limit(conf.limits.form_size)).and(body::form())
         .and_then(move |rinfo: HashMap<String, String>| {
             println!("{:?}", rinfo);
@@ -109,10 +112,12 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
             let conf = conf.clone();
             async move {
                 let slots_available = conf.limits.room_slots - rooms.read().await.len();
-                let empty = empty_rooms(rooms.clone()).await;
+                let empty = empty_rooms(&*rooms.read().await).await;
                 if slots_available < 1 {
                     if slots_available + empty.len() > 0 {
-                        remove_room(rooms.clone(), pubs.clone(), empty[0].clone()).await;
+                        let mut roomsl = rooms.write().await;
+                        let mut pubsl = pubs.write().await;
+                        remove_room(&mut *roomsl, &mut *pubsl, empty[0].clone());
                     } else {
                         return Err(reject::custom(NoRoomSlots));
                     }
@@ -204,7 +209,7 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
 }
 
 // If a move is made, broadcast new board, else just send current board
-async fn gameloop(mut move_rx: tokio::sync::mpsc::UnboundedReceiver<MetaMove>, players: PlayerMapData, bconf: minesweeper::BoardConf) {
+async fn gameloop(mut move_rx: tokio::sync::mpsc::UnboundedReceiver<MetaMove>, players: Arc<RwLock<PlayerMap>>, bconf: minesweeper::BoardConf) {
     // FIXME: push new board if and only if there aren't any remaining commands in the queue
     use minesweeper::*;
     use flate2::{ Compression, write::DeflateEncoder };
@@ -275,9 +280,8 @@ async fn error_handler(err: Rejection) -> Result<impl Reply, std::convert::Infal
     }
 }
 
-async fn empty_rooms(rooms: RoomMap) -> Vec<RoomId> {
-    let rl = rooms.read().await;
-    futures::stream::iter(rl.iter())
+async fn empty_rooms(rooms: &RoomMap) -> Vec<RoomId> {
+    futures::stream::iter(rooms.iter())
         .filter_map(|(id,roomarc)| async move {
             let rrl = roomarc.read().await;
             let rrrl = rrl.players.read().await;
@@ -305,7 +309,7 @@ fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> R
             if n.is_empty() { uid.to_string() } else { n }
         };
 
-        let players = PlayerMap::default();
+        let players = Arc::new(RwLock::new(PlayerMap::default()));
 
         let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
         let game_handle = tokio::spawn(gameloop(cmd_rx, players.clone(), board_conf));
@@ -330,14 +334,8 @@ fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> R
     } else { Err(warp::reject::custom(BadFormData)) }
 }
 
-async fn remove_room<T>(rooms: RoomMap, pubs: Arc<RwLock<HashMap<RoomId,T>>>, id: RoomId) {
-    {
-        let mut rwl = rooms.write().await;
-        rwl.remove(&id);
-    }
-    {
-        let mut pwl = pubs.write().await;
-        pwl.remove(&id);
-    }
+fn remove_room<T>(rooms: &mut RoomMap, pubs: &mut HashMap<RoomId,T>, id: RoomId) {
+    rooms.remove(&id);
+    pubs.remove(&id);
 }
 

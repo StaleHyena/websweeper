@@ -24,7 +24,7 @@ pub struct RoomConf {
 
 pub struct Room {
     pub conf: RoomConf,
-    pub players: PlayerMap,
+    pub players: Arc<RwLock<PlayerMap>>,
     pub game_driver: tokio::task::JoinHandle<()>,
     pub cmd_stream: CmdTx,
     pub livepos_driver: tokio::task::JoinHandle<()>,
@@ -90,8 +90,8 @@ impl RoomId {
 }
 
 pub type CmdTx = tokio::sync::mpsc::UnboundedSender<MetaMove>;
-pub type RoomMap = Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>>;
-pub type PlayerMapData = Arc<RwLock<HashMap<SocketAddr, Player>>>;
+pub type RoomMap = HashMap<RoomId, Arc<RwLock<Room>>>;
+pub type PlayerMapData = HashMap<SocketAddr, Player>;
 #[derive(Debug)]
 pub struct PlayerMap {
     inner: PlayerMapData,
@@ -99,7 +99,7 @@ pub struct PlayerMap {
 }
 
 impl Deref for PlayerMap {
-    type Target = Arc<RwLock<HashMap<SocketAddr, Player>>>;
+    type Target = PlayerMapData;
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
@@ -111,15 +111,14 @@ impl DerefMut for PlayerMap {
 }
 impl Default for PlayerMap {
     fn default() -> Self {
-        Self { inner: Arc::new(RwLock::new(HashMap::new())), uid_counter: 0.into() }
+        Self { inner: HashMap::new(), uid_counter: 0.into() }
     }
 }
 
 impl PlayerMap {
-    pub async fn insert_conn(&mut self, conn: Conn, name: String, clr: String) -> usize {
-        let mut map = self.write().await;
+    pub fn insert_conn(&mut self, conn: Conn, name: String, clr: String) -> usize {
         let uid = self.uid_counter.fetch_add(1, Ordering::Relaxed);
-        map.insert(
+        self.insert(
             conn.addr,
             Player { conn, uid, name, clr },
         );

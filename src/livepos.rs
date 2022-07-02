@@ -1,6 +1,7 @@
 use crate::types::*;
+use std::sync::Arc;
 use tokio::sync::mpsc as tokio_mpsc;
-use tokio::sync::Mutex;
+use tokio::sync::{ RwLock, Mutex };
 use std::collections::{HashMap,HashSet};
 use tokio::time::{self, Duration};
 use warp::ws::Message;
@@ -16,7 +17,7 @@ pub struct Req {
     pub data: ReqData,
 }
 
-pub async fn livepos(players: PlayerMapData, mut recv: tokio_mpsc::UnboundedReceiver<Req>) {
+pub async fn livepos(players: Arc<RwLock<PlayerMap>>, mut recv: tokio_mpsc::UnboundedReceiver<Req>) {
     let positions = Mutex::new(HashMap::new());
     let dirty = Mutex::new(HashSet::new());
     let process_upds = async {

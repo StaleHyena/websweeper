@@ -147,7 +147,7 @@ pub async fn handle_room(streams: RoomStreams, addr: SocketAddr, rinfo: (RoomId,
                             let uid = {
                                 // new scope cuz paranoid bout deadlocks
                                 let conn = Conn { addr, tx: tx.clone() };
-                                room.write().await.players.insert_conn(conn, name.clone(), clr).await
+                                room.write().await.players.write().await.insert_conn(conn, name.clone(), clr)
                             };
                             let players_lock = players.read().await;
                             let me = players_lock.get(&addr).unwrap();
