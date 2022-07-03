@@ -127,11 +127,13 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
                 let uid = RoomId::new_among(rooms.keys());
 
                 match room_from_form(uid.clone(), &rinfo, &conf) {
-                    Ok((room, access)) => {
-                        if access {
+                    Ok((room, public)) => {
+                        if public {
                             pubs.write().await.insert(uid.clone(), serde_json::to_string(&room.conf).unwrap());
+                            println!("New public room: {:?}", room.conf);
+                        } else {
+                            println!("New private room: {:?}", room.conf);
                         }
-                        println!("New room: {:?}", room.conf);
                         rooms.insert(uid.clone(), Arc::new(RwLock::new(room)));
 
                         Ok(
@@ -300,8 +302,8 @@ fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> R
         rinfo.get("mineratio-n").and_then(|n| n.parse::<usize>().ok()),
         rinfo.get("mineratio-d").and_then(|d| d.parse::<NonZeroUsize>().ok()),
         rinfo.get("public").map(|s| s == "on").unwrap_or(false),
-        rinfo.get("rborders").map(|s| s == "on").unwrap_or(false),
         rinfo.get("allsafe1move").map(|s| s == "on").unwrap_or(false),
+        rinfo.get("rborders").map(|s| s == "on").unwrap_or(false),
         rinfo.get("limit").and_then(|l| l.parse::<NonZeroUsize>().ok()),
         ) {
         if w.get()*h.get() > conf.limits.board_area {

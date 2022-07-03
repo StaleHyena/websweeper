@@ -83,6 +83,9 @@ pub async fn drive_conn(conn: (Conn, SplitStream<WebSocket>), rinfo: (RoomId, Ar
                 x.zip(y)
             };
             if let Some(cmd_name) = fields.next() {
+                if cmd_name == "<3" {
+                    continue; // heartbeat, no need to handle it
+                }
                 use crate::minesweeper::{Move,MoveType};
                 let mut players_lock = players.write().await;
                 match players_lock.get_mut(&conn.addr) {

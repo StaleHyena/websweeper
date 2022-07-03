@@ -40,6 +40,7 @@
               elem: document.getElementById('rlist'),
               map: new Map(),
       };
+      let active_rids = [];
       let rspace = {
               elem: document.getElementById('rspace'),
               num: NaN,
@@ -50,7 +51,8 @@
         fetch('rlist').then(r => r.json()).then(info => {
           let rooms = info[0];
           let pcounts = info[1];
-          Object.keys(rooms).forEach(id => {
+          active_rids = Object.keys(rooms);
+          active_rids.forEach(id => {
             let room = rlist.map.get(id);
             if (!room) { room = { init: false }; }
             let rinfo = JSON.parse(rooms[id]);
@@ -60,6 +62,13 @@
             room.board_conf = rinfo.board_conf;
             rlist.map.set(id, room);
           });
+          for (id of rlist.map.keys()) {
+            if (!active_rids.includes(id)) {
+              let r = rlist.map.get(id);
+              r.entry.remove();
+              rlist.map.delete(id);
+            }
+          }
           callback();
         });
         fetch("rspace").then(resp => resp.text()).then(roomspace => {
@@ -72,7 +81,7 @@
         rlist.map.forEach((room, id) => {
           let full = room.pcount == room.pcapacity;
           if (!room.init) {
-            let entry = (full)? document.createElement('span') : document.createElement('a');
+            room.entry = (full)? document.createElement('span') : document.createElement('a');
             room.h1 = document.createElement("h1");
             room.h1_txt = document.createTextNode("");
             room.h1.appendChild(room.h1_txt);
@@ -81,11 +90,11 @@
                     `${room.board_conf.w} by ${room.board_conf.h} with
                     ${room.board_conf.mine_ratio[0]} in every ${room.board_conf.mine_ratio[1]} tiles mined`
               ));
-            entry.append(room.h1);
-            entry.append(room.h4);
-            entry.href = 'room/' + id;
-            rlist.elem.append(entry);
-            rlist.elem.append(document.createElement('br'));
+            room.entry.append(room.h1);
+            room.entry.append(room.h4);
+            room.entry.append(document.createElement('br'));
+            room.entry.href = 'room/' + id;
+            rlist.elem.append(room.entry);
             room.init = true;
           }
           let ptxt = `${room.pcount}/${room.pcapacity} players` + ((full)? " (full)" : "");

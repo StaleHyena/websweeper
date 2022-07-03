@@ -1,11 +1,38 @@
 window.player = { uid: NaN };
-window.info_elem = document.getElementById("miscinfo");
-window.identform = document.getElementById("identform");
-window.statusline = document.getElementsByClassName("statusline")[0];
-window.bcont_elem = document.getElementById("board-container");
-window.board_elem = document.getElementById("board");
-window.cursor_frame = document.getElementById("cursor-frame");
+window.elem = {
+  info: document.getElementById("miscinfo"),
+  identform: document.getElementById("identform"),
+  statusline: document.getElementsByClassName("statusline")[0],
+  bcont: document.getElementById("board-container"),
+  board: document.getElementById("board"),
+  cursor_frame: document.getElementById("cursor-frame"),
+  volslider: document.getElementById("volslider")
+};
+
 window.queued_pos = undefined;
+window.assets = {
+  audio: {
+    explosion: registerMediaElem(new Audio("../explosion.opus"))
+  }
+};
+
+function registerMediaElem(melm) {
+  let record = { data: melm, loaded: false };
+  melm.addEventListener("canplaythrough", e => {
+    record.loaded = true;
+  });
+  return record;
+}
+
+document.addEventListener('roomloading', function() {
+  //window.elem.info.innerHTML = "loading...";
+  // TODO/FIXME: this should check all the assets, once we have more than one
+  if (assets.audio.explosion.loaded) {
+    room.socket = connect(); // drive the game with socket events from then on
+  } else {
+    setTimeout(function() { document.dispatchEvent(new Event('roomloading')) }, 500);
+  }
+});
 
 window.room = {
   name: undefined,
@@ -20,8 +47,8 @@ window.room = {
 
 
 if (room.identity == null) {
-  statusline.style.display = "none";
-  identform.style.display = "initial";
+  elem.statusline.style.display = "none";
+  elem.identform.style.display = "initial";
 } else {
   join();
 }
@@ -33,9 +60,9 @@ function join() {
     room.identity.clr = document.getElementById("clr-in").value;
     localStorage.setItem("identity", JSON.stringify(room.identity));
   }
-  identform.style.display = "none";
-  room.socket = connect();
-  statusline.style.display = "flex";
+  elem.identform.style.display = "none";
+  elem.statusline.style.display = "flex";
+  document.dispatchEvent(new Event('roomloading'));
 }
 function clear_ident() {
   localStorage.removeItem("identity");
@@ -53,8 +80,8 @@ function connect() {
     let d = e.data;
     if (typeof d == "object") {
       d.arrayBuffer().then(acceptBoard);
-      info_elem.onclick = undefined;
-      info_elem.innerHTML = `${room.name} (${room.bconf.w}x${room.bconf.h}) >> Running, ${room.bconf.mine_ratio} tiles are mines`;
+      elem.info.onclick = undefined;
+      elem.info.innerHTML = `${room.name} (${room.bconf.w}x${room.bconf.h}) >> Running, ${room.bconf.mine_ratio} tiles are mines`;
     } else if (typeof e.data == "string") {
       let fields = d.split(" ");
       switch (fields[0]) {
@@ -65,10 +92,12 @@ function connect() {
             let x = pdat[1][0];
             let y = pdat[1][1];
             let curs = room.cursors.get(oid);
-            if (oid != player.uid && curs != undefined) {
-              movCursor(curs, x, y);
-            } else {
-              console.log("livepos sys incoherent");
+            if (oid != player.uid) {
+              if (curs != undefined) {
+                movCursor(curs, x, y);
+              } else {
+                console.log("livepos sys incoherent");
+              }
             }
           });
         } break;
@@ -96,13 +125,14 @@ function connect() {
           createCursor(player.uid, name, room.identity.clr);
         } break;
         case "win": {
-          info_elem.innerHTML = "You win! Click here to play again.";
-          info_elem.onclick = e => { s.send("reset") };
+          elem.info.innerHTML = "You win! Click here to play again.";
+          elem.info.onclick = e => { s.send("reset") };
         } break;
         case "lose": {
           let badone = fields[1];
-          info_elem.innerHTML = `You lost, ${badone} was blown up. Click here to retry.`;
-          info_elem.onclick = e => { s.send("reset") };
+          elem.info.innerHTML = `You lost, ${badone} was blown up. Click here to retry.`;
+          elem.info.onclick = e => { s.send("reset") };
+          assets.audio.explosion.data.play();
         } break;
         case "logoff": {
           let oid = Number(fields[1]);
@@ -113,8 +143,8 @@ function connect() {
       }
     }
   }
-  s.onerror = function(e) { info_elem.innerHTML += `<br>Connection error: ${e}`; }
-  s.onclose = function(e) { info_elem.innerHTML = "Connection closed"; }
+  s.onerror = function(e) { elem.info.innerHTML += `<br>Connection error: ${e}`; }
+  s.onclose = function(e) { elem.info.innerHTML = "Connection closed"; }
   return s;
 }
 
@@ -163,7 +193,7 @@ function acceptBoard(data) {
     }
     last = room.board[i];
   }
-  board_elem.innerHTML = split_board.join("");
+  elem.board.innerHTML = split_board.join("");
   room.cbounds = getBoardBounds();
 }
 
@@ -181,8 +211,8 @@ function createCursor(id, name, clr) {
   cursor.appendChild(nametag);
   cursor.classList.add('cursor');
   cursor.style.color = clr;
-  document.getElementById('cursor-frame').append(cursor);
-  document.getElementById('cursor-frame').append(selection_window);
+  elem.cursor_frame.append(cursor);
+  elem.cursor_frame.append(selection_window);
   let c = { name: name, elem: cursor, selwin: selection_window };
   if (id == window.player.uid) {
     document.addEventListener('mousemove', e => {
@@ -207,7 +237,6 @@ function movCursor(c, bx, by) {
 }
 function movSelWin(win, bx, by) {
   let tpos = tilepos(bx,by);
-  console.log(tpos);
   if (tpos.x > (room.bconf.w - 1) || tpos.x < 0 || tpos.y > (room.bconf.h - 1) || tpos.y < 0) {
     win.style.display = "none";
   } else {
@@ -219,8 +248,8 @@ function movSelWin(win, bx, by) {
   win.style.height = room.bconf.tile_h + 'px';
 }
 function getBoardBounds() {
-  let a = bcont_elem.getBoundingClientRect();
-  let b = board_elem.getBoundingClientRect();
+  let a = elem.bcont.getBoundingClientRect();
+  let b = elem.board.getBoundingClientRect();
   room.bconf.tile_w = b.width / room.bconf.w;
   room.bconf.tile_h = 48;
   return {
@@ -234,13 +263,13 @@ window.onresize = () => {
   room.cbounds = getBoardBounds();
 }
 
-bcont_elem.onclick = function(e) {
+elem.bcont.onclick = function(e) {
   let bcoords = pageToBoardPx(e.pageX, e.pageY);
   let tpos = tilepos(bcoords[0], bcoords[1]);
   let cmd = `reveal ${tpos.x} ${tpos.y}`;
   room.socket.send(cmd);
 }
-bcont_elem.oncontextmenu = function(e) {
+elem.bcont.oncontextmenu = function(e) {
   let bcoords = pageToBoardPx(e.pageX, e.pageY);
   let tpos = tilepos(bcoords[0], bcoords[1]);
   let cmd = `flag ${tpos.x} ${tpos.y}`;
@@ -255,6 +284,18 @@ function tilepos(bx,by) {
   return { x: tilex, y: tiley };
 }
 
+function volChanged() {
+  let newVol = elem.volslider.value;
+  localStorage.setItem("audioVolume", JSON.stringify(newVol));
+  for (i of Object.keys(assets.audio)) {
+    assets.audio[i].data.volume = newVol;
+  }
+}
+elem.volslider.onchange = volChanged;
+let storedVol = localStorage.getItem("audioVolume");
+if (storedVol) { elem.volslider.value = JSON.parse(storedVol); }
+volChanged();
+
 (function sendPos() {
   let qp = window.queued_pos;
   if (qp) {
@@ -264,4 +305,10 @@ function tilepos(bx,by) {
   setTimeout(function() {
     sendPos();
   }, 16);
+})();
+(function heartbeat() {
+  setTimeout(function() {
+    room.socket.send("<3");
+    heartbeat();
+  }, 30000);
 })();
