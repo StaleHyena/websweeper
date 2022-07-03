@@ -35,7 +35,8 @@ pub struct Room {
 #[derive(Debug)]
 pub enum MetaMove {
     Move(minesweeper::Move,SocketAddr),
-    Dump,
+    StateDump,
+    StateSync,
     Reset,
 }
 

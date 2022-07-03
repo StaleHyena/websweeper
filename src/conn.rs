@@ -165,7 +165,7 @@ pub async fn drive_conn(conn: (Conn, SplitStream<WebSocket>), rinfo: (RoomId, Ar
                             if let Err(e) = pos_tx.send(livepos::Req { id: uid, data: livepos::ReqData::StateDump }) {
                                 println!("{room_id} E: couldn't request position dump for {me}: {e}");
                             }
-                            if let Err(e) = cmd_tx.send(MetaMove::Dump) {
+                            if let Err(e) = cmd_tx.send(MetaMove::StateDump) {
                                 println!("{room_id} E: couldn't request game dump for {me}: {e}");
                             }
                         }

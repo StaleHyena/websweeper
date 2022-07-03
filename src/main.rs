@@ -214,46 +214,59 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
 }
 
 // If a move is made, broadcast new board, else just send current board
-async fn gameloop(mut move_rx: tokio::sync::mpsc::UnboundedReceiver<MetaMove>, players: Arc<RwLock<PlayerMap>>, bconf: minesweeper::BoardConf) {
+type MoveStreamHandles = (tokio::sync::mpsc::UnboundedSender<MetaMove>, tokio::sync::mpsc::UnboundedReceiver<MetaMove>);
+async fn gameloop(moves: MoveStreamHandles, players: Arc<RwLock<PlayerMap>>, bconf: minesweeper::BoardConf) {
     // FIXME: push new board if and only if there aren't any remaining commands in the queue
     use minesweeper::*;
     use flate2::{ Compression, write::DeflateEncoder };
     use std::io::Write;
+    let (move_tx, mut move_rx) = moves;
     let mut game = Game::new(bconf);
-    let mut latest_player_name = None;
+    let mut final_player_name = None;
+    let mut desynced = true;
     while let Some(req) = move_rx.recv().await {
-        let done = game.phase == Phase::Die || game.phase == Phase::Win;
+        let done = |p: &Phase| { *p == Phase::Die || *p == Phase::Win };
         match req {
-            MetaMove::Move(m, o) => if !done {
+            MetaMove::Move(m, o) => if !done(&game.phase) {
                 game = game.act(m);
-                if game.phase == Phase::Win || game.phase == Phase::Die {
+                desynced = true;
+                if done(&game.phase) {
                     game.board = game.board.grade();
+                    final_player_name = players.read().await.get(&o).map(|p| p.name.clone());
                 }
-                latest_player_name = players.read().await.get(&o).map(|p| p.name.clone());
+                move_tx.send(MetaMove::StateSync).unwrap();
             },
-            MetaMove::Dump => (),
-            MetaMove::Reset => { game = Game::new(bconf); },
-        }
-        use warp::ws::Message;
-        let mut board_encoder = DeflateEncoder::new(Vec::new(), Compression::default());
-        board_encoder.write_all(&game.board.render()).unwrap();
-        let compressed_board = board_encoder.finish().unwrap();
-        let mut reply = vec![Message::binary(compressed_board)];
-        let lpname = latest_player_name.as_deref().unwrap_or("unknown player").replace(' ', "&nbsp");
-        match game.phase {
-            Phase::Win => { reply.push(Message::text(format!("win {lpname}"))); },
-            Phase::Die => { reply.push(Message::text(format!("lose {lpname}"))); },
-            _ => (),
-        }
-        {
-            let peers = players.read().await;
-            for (addr, p) in peers.iter() {
-                for r in reply.iter() {
-                    if let Err(e) = p.conn.tx.send(r.clone()) {
-                        println!("couldn't send game update {r:?} to {addr}: {e}");
+            MetaMove::StateSync => { // a StateDump, but consecutive ones in the queue get merged
+                if desynced { move_tx.send(MetaMove::StateDump).unwrap(); desynced = false; }
+            },
+            MetaMove::StateDump => {
+                use warp::ws::Message;
+                let mut board_encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+                board_encoder.write_all(&game.board.render()).unwrap();
+                let compressed_board = board_encoder.finish().unwrap();
+                let mut reply = vec![Message::binary(compressed_board)];
+                let lpname = final_player_name.as_deref().unwrap_or("unknown player").replace(' ', "&nbsp");
+                match game.phase {
+                    Phase::Win => { reply.push(Message::text(format!("win {lpname}"))); },
+                    Phase::Die => { reply.push(Message::text(format!("lose {lpname}"))); },
+                    _ => (),
+                }
+                let peers = players.read().await;
+                for (addr, p) in peers.iter() {
+                    for r in reply.iter() {
+                        if let Err(e) = p.conn.tx.send(r.clone()) {
+                            println!("couldn't send game update {r:?} to {addr}: {e}");
+                        }
                     }
                 }
-            }
+                desynced = false;
+            },
+            MetaMove::Reset => {
+                if done(&game.phase) {
+                    game = Game::new(bconf);
+                    move_tx.send(MetaMove::StateDump).unwrap();
+                }
+            },
         }
     }
 }
@@ -318,7 +331,7 @@ fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> R
         let players = Arc::new(RwLock::new(PlayerMap::default()));
 
         let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
-        let game_handle = tokio::spawn(gameloop(cmd_rx, players.clone(), board_conf));
+        let game_handle = tokio::spawn(gameloop((cmd_tx.clone(), cmd_rx), players.clone(), board_conf));
 
         let (pos_tx, pos_rx) = tokio::sync::mpsc::unbounded_channel();
         let livepos_handle = tokio::spawn(livepos::livepos(players.clone(), pos_rx));
