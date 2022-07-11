@@ -203,30 +203,59 @@ impl Board {
             (x < self.width.get() && y < self.height.get()).then(|| (x,y))
         } else { None }
     }
-    pub fn flood_reveal(&mut self, pos: (usize,usize)) {
+    pub fn flood_reveal(&mut self, pos: (usize,usize)) -> bool {
         let mut queue = vec![pos];
         while let Some(pos) = queue.pop() {
-            if let Some(off) = self.pos_to_off(pos) {
-                let c = &mut self.data[off];
-                if *c & HIDDEN_BIT > 0 {
-                    *c &= !(HIDDEN_BIT | FLAGGED_BIT);
-                    self.hidden_tiles -= 1;
-                    if *c > 0 { continue; }
-                    if let Some(mut adj) = self.neighs(pos) {
-                        queue.append(&mut adj);
+            let off = self.pos_to_off_unchecked(pos);
+            let mut c = self.data[off];
+            if c & HIDDEN_BIT > 0 {
+                c = self.unhide_offset(off);
+                if is_mine(c) { return true; }
+                if c > 0 { continue; }
+                if let Some(mut adj) = self.neighs(pos) {
+                    queue.append(&mut adj);
+                }
+            }
+        }
+        false
+    }
+    pub fn reveal_numtile(&mut self, pos: (usize,usize)) -> bool {
+        if let Some(off) = self.pos_to_off(pos) {
+            let count = self.data[off] as usize;
+            if 1 <= count && count <= 8 {
+                if let Some(mut neighs) = self.neighs(pos) {
+                    let total_neighs = neighs.len();
+                    neighs.retain(|x| self.data[self.pos_to_off_unchecked(*x)] & FLAGGED_BIT == 0);
+                    if (total_neighs - neighs.len()) == count {
+                        for pos in neighs.iter() {
+                            if self.flood_reveal(*pos) {
+                                return true;
+                            }
+                        }
                     }
                 }
             }
         }
+        false
+    }
+    pub fn reveal_in_place(&mut self, pos: (usize,usize)) -> bool {
+        if let Some(off) = self.pos_to_off(pos) {
+            let v = self.data[off];
+            if 1 <= v && v <= 8 {
+                self.reveal_numtile(pos)
+            } else {
+                self.flood_reveal(pos)
+            }
+        } else { false }
+    }
+    pub fn unhide_offset(&mut self, off: usize) -> u8 {
+        self.data[off] &= !(HIDDEN_BIT | FLAGGED_BIT);
+        self.hidden_tiles -= 1;
+        self.data[off]
     }
     pub fn reveal(mut self, pos: (usize,usize)) -> MoveResult {
-        if let Some(off) = self.pos_to_off(pos) {
-            self.flood_reveal(pos);
-            let c = self.data[off];
-            MoveResult(self, (c & !(FLAGGED_BIT | CORRECT_BIT)) == TILE_NUMBITS)
-        } else {
-            MoveResult(self, false)
-        }
+        let lost = self.reveal_in_place(pos);
+        MoveResult(self, lost)
     }
     pub fn grade(mut self) -> Board {
         for i in &mut self.data {
@@ -300,4 +329,8 @@ fn pos_u2i(pos: (usize, usize)) -> Option<(isize, isize)> {
     if let (Ok(x),Ok(y)) = (pos.0.try_into(), pos.1.try_into())
     { Some((x,y)) } else { None }
 }
+pub fn is_mine(v: u8) -> bool {
+    (v & !(FLAGGED_BIT | CORRECT_BIT)) == TILE_NUMBITS
+}
+
 
