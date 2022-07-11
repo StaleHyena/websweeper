@@ -39,6 +39,7 @@ pub struct BoardConf {
     pub mine_ratio: (usize,NonZeroUsize),
     pub always_safe_first_move: bool,
     pub revealed_borders: bool,
+    pub reveal_on_lose: bool,
 }
 
 impl std::fmt::Display for BoardConf {
@@ -110,6 +111,10 @@ impl Game {
             }
         } else if self.phase != Phase::Die && self.board.hidden_tiles == self.board.mine_count {
             self.phase = Phase::Win;
+        } else if self.phase == Phase::Die && self.board_conf.reveal_on_lose {
+            for tile in self.board.data.iter_mut().filter(|x| is_mine(**x)) {
+                *tile = unhide(*tile);
+            }
         }
         self
     }
@@ -207,11 +212,12 @@ impl Board {
         let mut queue = vec![pos];
         while let Some(pos) = queue.pop() {
             let off = self.pos_to_off_unchecked(pos);
-            let mut c = self.data[off];
-            if c & HIDDEN_BIT > 0 {
-                c = self.unhide_offset(off);
-                if is_mine(c) { return true; }
-                if c > 0 { continue; }
+            let c = &mut self.data[off];
+            if *c & HIDDEN_BIT > 0 {
+                *c = unhide(*c);
+                self.hidden_tiles -= 1;
+                if is_mine(*c) { return true; }
+                if *c > 0 { continue; }
                 if let Some(mut adj) = self.neighs(pos) {
                     queue.append(&mut adj);
                 }
@@ -247,11 +253,6 @@ impl Board {
                 self.flood_reveal(pos)
             }
         } else { false }
-    }
-    pub fn unhide_offset(&mut self, off: usize) -> u8 {
-        self.data[off] &= !(HIDDEN_BIT | FLAGGED_BIT);
-        self.hidden_tiles -= 1;
-        self.data[off]
     }
     pub fn reveal(mut self, pos: (usize,usize)) -> MoveResult {
         let lost = self.reveal_in_place(pos);
@@ -330,7 +331,10 @@ fn pos_u2i(pos: (usize, usize)) -> Option<(isize, isize)> {
     { Some((x,y)) } else { None }
 }
 pub fn is_mine(v: u8) -> bool {
-    (v & !(FLAGGED_BIT | CORRECT_BIT)) == TILE_NUMBITS
+    (v & TILE_NUMBITS) == TILE_NUMBITS
+}
+pub fn unhide(tile: u8) -> u8 {
+    tile & !(HIDDEN_BIT | FLAGGED_BIT)
 }
 
 
