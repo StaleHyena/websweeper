@@ -8,6 +8,7 @@ window.elem = {
   cursor_frame: document.getElementById("cursor-frame"),
   volslider: document.getElementById("volslider")
 };
+const U32MAX = Math.pow(2,32) - 1;
 
 window.queued_pos = undefined;
 window.assets = {
@@ -94,7 +95,7 @@ function connect() {
             let curs = room.cursors.get(oid);
             if (oid != player.uid) {
               if (curs != undefined) {
-                movCursor(curs, x, y);
+                movCursor(curs, [x, y]);
               } else {
                 console.log("livepos sys incoherent");
               }
@@ -216,8 +217,8 @@ function createCursor(id, name, clr) {
   let c = { name: name, elem: cursor, selwin: selection_window };
   if (id == window.player.uid) {
     document.addEventListener('mousemove', e => {
-      let bcoords = pageToBoardPx(e.pageX, e.pageY);
-      movCursor(c, bcoords[0], bcoords[1]);
+      let bcoords = pageToBoard(e.pageX, e.pageY);
+      movCursor(c, bcoords);
       window.queued_pos = bcoords;
     },
       false);
@@ -226,24 +227,35 @@ function createCursor(id, name, clr) {
   return cursor;
 }
 
-function pageToBoardPx(x,y) {
-  return [Math.floor(x - room.cbounds.ox), Math.floor(y - room.cbounds.oy)];
+function pageToBoard(x,y) {
+  return [
+    Math.floor((x - room.cbounds.ox) * (U32MAX / room.cbounds.w)),
+    Math.floor((y - room.cbounds.oy) * (U32MAX / room.cbounds.h))
+  ];
 }
 
-function movCursor(c, bx, by) {
-  c.elem.style.left = (room.cbounds.ox + bx) + 'px';
-  c.elem.style.top = (room.cbounds.oy + by) + 'px';
-  movSelWin(c.selwin, bx, by);
+function boardToPage(b) {
+  return [
+    b[0] * (room.cbounds.w / U32MAX) + room.cbounds.ox,
+    b[1] * (room.cbounds.h / U32MAX) + room.cbounds.ox
+  ];
 }
-function movSelWin(win, bx, by) {
-  let tpos = tilepos(bx,by);
-  if (tpos.x > (room.bconf.w - 1) || tpos.x < 0 || tpos.y > (room.bconf.h - 1) || tpos.y < 0) {
+
+function movCursor(c, b) {
+  let p = boardToPage(b);
+  c.elem.style.left = p[0] + 'px';
+  c.elem.style.top = p[1] + 'px';
+  movSelWin(c.selwin, b);
+}
+function movSelWin(win, b) {
+  let tpos = tilepos(b);
+  if (tpos[0] > (room.bconf.w - 1) || tpos[0] < 0 || tpos[1] > (room.bconf.h - 1) || tpos[1] < 0) {
     win.style.display = "none";
   } else {
     win.style.display = "";
   }
-  win.style.left = (tpos.x * room.bconf.tile_w) + 'px';
-  win.style.top  = (tpos.y * room.bconf.tile_h) + 'px';
+  win.style.left = (tpos[0] * room.bconf.tile_w) + 'px';
+  win.style.top  = (tpos[1] * room.bconf.tile_h) + 'px';
   win.style.width = room.bconf.tile_w + 'px';
   win.style.height = room.bconf.tile_h + 'px';
 }
@@ -264,24 +276,24 @@ window.onresize = () => {
 }
 
 elem.bcont.onclick = function(e) {
-  let bcoords = pageToBoardPx(e.pageX, e.pageY);
-  let tpos = tilepos(bcoords[0], bcoords[1]);
-  let cmd = `reveal ${tpos.x} ${tpos.y}`;
+  let bcoords = pageToBoard(e.pageX, e.pageY);
+  let tpos = tilepos(bcoords);
+  let cmd = `reveal ${tpos[0]} ${tpos[1]}`;
   room.socket.send(cmd);
 }
 elem.bcont.oncontextmenu = function(e) {
-  let bcoords = pageToBoardPx(e.pageX, e.pageY);
-  let tpos = tilepos(bcoords[0], bcoords[1]);
-  let cmd = `flag ${tpos.x} ${tpos.y}`;
+  let bcoords = pageToBoard(e.pageX, e.pageY);
+  let tpos = tilepos(bcoords);
+  let cmd = `flag ${tpos[0]} ${tpos[1]}`;
   room.socket.send(cmd);
   return false;
 }
-// these are board-px coords
-function tilepos(bx,by) {
-  let b = room.cbounds; // we can assume it is already computed by earlier aux calls
-  let tilex = Math.floor(room.bconf.w * bx/b.w);
-  let tiley = Math.floor(room.bconf.h * by/b.h);
-  return { x: tilex, y: tiley };
+// these are board coords, [0..2**32)
+function tilepos(b) {
+  return [
+    Math.floor(room.bconf.w * b[0]/U32MAX),
+    Math.floor(room.bconf.h * b[1]/U32MAX)
+  ];
 }
 
 function volChanged() {
