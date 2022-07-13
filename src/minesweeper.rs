@@ -11,11 +11,6 @@ const CORRECT_BIT: u8 = 1 << 5; // grading for a rightly flagged mine
 // all the bits that aren't flags
 const TILE_NUMBITS: u8 = !(HIDDEN_BIT | FLAGGED_BIT | CORRECT_BIT);
 const MINED: u8 = HIDDEN_BIT | TILE_NUMBITS;
-const NEIGH_OFFS: &[(isize,isize)] = &[
-    (-1,-1),(0,-1),(1,-1),
-    (-1, 0),       (1, 0),
-    (-1, 1),(0, 1),(1, 1),
-];
 #[derive(PartialEq)]
 pub enum Phase {
     SafeFirstMove,
@@ -63,10 +58,9 @@ pub enum MoveType {
 #[derive(Debug)]
 pub struct Move {
     pub t: MoveType,
-    pub pos: (usize,usize),
+    pub pos: BoardPos,
 }
 
-pub struct MoveResult(pub Board, pub bool);
 impl Game {
     pub fn new(conf: BoardConf) -> Self {
         let board = Board::new(conf);
@@ -76,9 +70,9 @@ impl Game {
             board_conf: conf
         }
     }
-    pub fn act(mut self, m: Move) -> Self {
-        let lost_phase = | phase | {
-            match phase {
+    pub fn act(&mut self, m: Move) {
+        let lost_phase = | phase: &Phase | {
+            match *phase {
                 Phase::SafeFirstMove => Phase::FirstMoveFail,
                 Phase::Run => Phase::Die,
                 _ => unreachable!(),
@@ -87,16 +81,11 @@ impl Game {
 
         match m.t {
             MoveType::Reveal => {
-                let kaboom: bool;
-                self.board = {
-                    let mr = self.board.reveal(m.pos);
-                    kaboom = mr.1;
-                    mr.0
-                };
-                if kaboom { self.phase = lost_phase(self.phase) }
+                let kaboom = self.board.reveal(m.pos);
+                if kaboom { self.phase = lost_phase(&self.phase); }
                 if self.phase == Phase::SafeFirstMove { self.phase = Phase::Run }
             },
-            MoveType::ToggleFlag => self.board = self.board.flag(m.pos).0,
+            MoveType::ToggleFlag => self.board.flag(m.pos),
         };
 
         if self.phase == Phase::FirstMoveFail {
@@ -105,7 +94,7 @@ impl Game {
                 self.board.hidden_tiles += 1;
                 self.board.move_mine_elsewhere(m.pos);
                 self.phase = Phase::Run;
-                self = self.act(m);
+                self.act(m);
             } else {
                 self.phase = Phase::Die;
             }
@@ -116,7 +105,6 @@ impl Game {
                 *tile = unhide(*tile);
             }
         }
-        self
     }
 }
 impl Board {
@@ -126,7 +114,7 @@ impl Board {
         if w.get() < 3 || h.get() < 3 { conf.revealed_borders = false; }
         let mined_area = area - if conf.revealed_borders { 2*(w.get()-1) + 2*(h.get()-1) } else { 0 };
         let mine_count = ((conf.mine_ratio.0 * mined_area) / conf.mine_ratio.1.get()).clamp(0, mined_area);
-        let b = Board {
+        let mut b = Board {
             data: [HIDDEN_BIT].repeat(area),
             width: w,
             height: h,
@@ -135,108 +123,83 @@ impl Board {
         };
         if conf.revealed_borders {
             let (w,h) = (w.get(),h.get());
-            let mut b = b.spread_mines(mine_count, true);
+            b.spread_mines(mine_count, true);
             for x in 0..w {
-                b = b.reveal((x,   0)).0;
-                b = b.reveal((x, h-1)).0;
+                b.reveal((x,   0).try_into().unwrap());
+                b.reveal((x, h-1).try_into().unwrap());
             }
             for y in 1..h-1 {
-                b = b.reveal((  0, y)).0;
-                b = b.reveal((w-1, y)).0;
+                b.reveal((  0, y).try_into().unwrap());
+                b.reveal((w-1, y).try_into().unwrap());
             }
-            b
-        } else { b.spread_mines(mine_count, false) }
+        } else { b.spread_mines(mine_count, false); }
+        b
     }
-    pub fn spread_mines(mut self, mut count: usize, without_edges: bool) -> Self {
+    pub fn spread_mines(&mut self, mut count: usize, without_edges: bool) {
         let mut rng = thread_rng();
-        let w = self.width.get();
-        let h = self.height.get();
+        let w = self.width.get() as u32;
+        let h = self.height.get() as u32;
         let (wr,hr) = if without_edges { ((1,w-1),(1,h-1)) } else { ((0,w),(0,h)) };
         while count > 0 {
-            let randpos: (usize, usize) = (rng.sample(Uniform::new(wr.0, wr.1)), rng.sample(Uniform::new(hr.0, hr.1)));
-            let o = self.pos_to_off_unchecked(randpos);
+            let randpos = BoardPos(rng.sample(Uniform::new(wr.0, wr.1)), rng.sample(Uniform::new(hr.0, hr.1)));
+            let o = randpos.rel_offset_unchecked(&self);
             if self.data[o] == MINED { continue }
             else {
                 self.data[o] = MINED;
                 count -= 1;
-                let minepos = pos_u2i(randpos).unwrap();
-                self.map_neighs(minepos, |neigh| {
+                self.map_neighs(randpos, |neigh| {
                     if neigh != MINED {
                         neigh + 1
                     } else { neigh }
                 });
             }
         }
-        self
     }
 
-    fn neighs<T>(&self, pos: (T,T)) -> Option<Vec<(usize,usize)>>
-        where T: TryInto<isize>
-    {
-        if let (Ok(ox),Ok(oy)) = (pos.0.try_into(),pos.1.try_into()) {
-            Some(NEIGH_OFFS
-                 .iter()
-                 .map(|(x,y)| (*x + ox, *y + oy)).filter_map(|p| self.bounded(p))
-                 .collect())
-        } else {
-            None
-        }
+    fn neighs(&self, pos: BoardPos) -> Vec<BoardPos> {
+        const NEIGH_OFFS: &[(isize,isize)] = &[
+            (-1,-1),(0,-1),(1,-1),
+            (-1, 0),       (1, 0),
+            (-1, 1),(0, 1),(1, 1),
+        ];
+        let ipos: (isize,isize) = pos.try_into().unwrap();
+        NEIGH_OFFS
+            .iter()
+            .filter_map(|(x,y)| (*x + ipos.0, *y + ipos.1).try_into().ok())
+            .filter(|pos: &BoardPos| pos.is_within(&self))
+            .collect()
     }
-    fn map_neighs<T>(&mut self, pos: (T,T), mut f: impl FnMut(u8) -> u8) where T: TryInto<isize> {
-        if let Some(neighs) = self.neighs(pos) {
-            let npos = neighs.iter().filter_map(|pos| self.pos_to_off(*pos)).collect::<Vec<usize>>();
-            npos.iter().for_each(|o| {
-                self.data[*o] = f(self.data[*o]);
-            });
-        }
+    fn map_neighs<F: FnMut(u8) -> u8>(&mut self, pos: BoardPos, mut f: F) {
+        let neighs: Vec<usize> = self.neighs(pos).iter().filter_map(|pos| pos.rel_offset(&self)).collect();
+        neighs.iter().for_each(|off| { self.data[*off] = f(self.data[*off]); });
     }
 
-    pub fn pos_to_off(&self, pos: (usize,usize)) -> Option<usize>
-    {
-        self.bounded(pos).map(|x| self.pos_to_off_unchecked(x))
-    }
-    pub fn pos_to_off_unchecked(&self, pos: (usize, usize)) -> usize {
-        pos.0 + pos.1 * self.width.get()
-    }
-    pub fn bounded<T>(&self, pos: (T,T)) -> Option<(usize, usize)>
-        where T: TryInto<usize>
-    {
-        if let (Ok(x),Ok(y)) = (
-            pos.0.try_into(),
-            pos.1.try_into(),
-        ) {
-            (x < self.width.get() && y < self.height.get()).then(|| (x,y))
-        } else { None }
-    }
-    pub fn flood_reveal(&mut self, pos: (usize,usize)) -> bool {
+    pub fn flood_reveal(&mut self, pos: BoardPos) -> bool {
         let mut queue = vec![pos];
         while let Some(pos) = queue.pop() {
-            let off = self.pos_to_off_unchecked(pos);
+            let off = pos.rel_offset_unchecked(&self);
             let c = &mut self.data[off];
             if *c & HIDDEN_BIT > 0 {
                 *c = unhide(*c);
                 self.hidden_tiles -= 1;
                 if is_mine(*c) { return true; }
                 if *c > 0 { continue; }
-                if let Some(mut adj) = self.neighs(pos) {
-                    queue.append(&mut adj);
-                }
+                queue.append(&mut self.neighs(pos));
             }
         }
         false
     }
-    pub fn reveal_numtile(&mut self, pos: (usize,usize)) -> bool {
-        if let Some(off) = self.pos_to_off(pos) {
+    pub fn reveal_numtile(&mut self, pos: BoardPos) -> bool {
+        if let Some(off) = pos.rel_offset(&self) {
             let count = self.data[off] as usize;
             if 1 <= count && count <= 8 {
-                if let Some(mut neighs) = self.neighs(pos) {
-                    let total_neighs = neighs.len();
-                    neighs.retain(|x| self.data[self.pos_to_off_unchecked(*x)] & FLAGGED_BIT == 0);
-                    if (total_neighs - neighs.len()) == count {
-                        for pos in neighs.iter() {
-                            if self.flood_reveal(*pos) {
-                                return true;
-                            }
+                let mut neighs = self.neighs(pos);
+                let total_neighs = neighs.len();
+                neighs.retain(|pos| self.data[pos.rel_offset_unchecked(&self)] & FLAGGED_BIT == 0);
+                if (total_neighs - neighs.len()) == count {
+                    for pos in neighs.iter() {
+                        if self.flood_reveal(*pos) {
+                            return true;
                         }
                     }
                 }
@@ -244,8 +207,8 @@ impl Board {
         }
         false
     }
-    pub fn reveal_in_place(&mut self, pos: (usize,usize)) -> bool {
-        if let Some(off) = self.pos_to_off(pos) {
+    pub fn reveal(&mut self, pos: BoardPos) -> bool {
+        if let Some(off) = pos.rel_offset(&self) {
             let v = self.data[off];
             if 1 <= v && v <= 8 {
                 self.reveal_numtile(pos)
@@ -254,30 +217,26 @@ impl Board {
             }
         } else { false }
     }
-    pub fn reveal(mut self, pos: (usize,usize)) -> MoveResult {
-        let lost = self.reveal_in_place(pos);
-        MoveResult(self, lost)
-    }
-    pub fn grade(mut self) -> Board {
+
+    pub fn grade(&mut self) {
         for i in &mut self.data {
             if *i == TILE_NUMBITS | FLAGGED_BIT | HIDDEN_BIT {
                 *i |= CORRECT_BIT;
             }
         }
-        self
     }
-    pub fn flag(mut self, pos: (usize,usize)) -> MoveResult {
-        if let Some(off) = self.pos_to_off(pos) {
+    pub fn flag(&mut self, pos: BoardPos) {
+        if let Some(off) = pos.rel_offset(&self) {
             self.data[off] ^= FLAGGED_BIT;
         }
-        MoveResult(self, false)
     }
 
     pub fn render(&self) -> Vec<u8> {
         let mut ret = vec![];
         for y in 0..self.height.get() {
             for x in 0..self.width.get() {
-                let c = &self.data[self.pos_to_off_unchecked((x,y))];
+                let pos: BoardPos = (x,y).try_into().unwrap();
+                let c = &self.data[pos.rel_offset_unchecked(&self)];
                 match *c {
                     0 => ret.push(b' '),
                     _ if *c <= 8 => ret.push(b'0' + c),
@@ -293,7 +252,7 @@ impl Board {
         ret
     }
 
-    pub fn move_mine_elsewhere(&mut self, pos: (usize, usize)) {
+    pub fn move_mine_elsewhere(&mut self, pos: BoardPos) {
         let mut surround_count = 0;
         self.map_neighs(pos, |val| {
             if (val & !FLAGGED_BIT) == MINED {
@@ -302,7 +261,7 @@ impl Board {
             } else {
                 val - 1
             }});
-        let off = self.pos_to_off(pos).unwrap();
+        let off = pos.rel_offset_unchecked(&self);
         let vacant_pos = {
             let v = self.data.iter()
                 .enumerate()
@@ -310,9 +269,9 @@ impl Board {
                 .map(|(p,_)| p)
                 .next()
                 .unwrap(); // there must be at least one
-            (v%self.width.get(), v/self.width.get())
+            BoardPos((v%self.width.get()) as u32, (v/self.width.get()) as u32)
         };
-        let voff = self.pos_to_off_unchecked(vacant_pos);
+        let voff = vacant_pos.rel_offset_unchecked(&self);
         debug_assert!(voff != off, "swapped mine to the same position in a FirstMoveFail/grace'd first move (???)");
 
         { // swap 'em (keep these together, pls kthnx (bugs were had))
@@ -326,10 +285,32 @@ impl Board {
     }
 }
 
-fn pos_u2i(pos: (usize, usize)) -> Option<(isize, isize)> {
-    if let (Ok(x),Ok(y)) = (pos.0.try_into(), pos.1.try_into())
-    { Some((x,y)) } else { None }
+#[derive(Debug, Clone, Copy)]
+pub struct BoardPos(u32,u32);
+impl BoardPos {
+    pub fn rel_offset(&self, b: &Board) -> Option<usize> {
+        self.is_within(b).then_some(self.rel_offset_unchecked(b))
+    }
+    pub fn rel_offset_unchecked(&self, b: &Board) -> usize {
+        (self.0 + self.1 * b.width.get() as u32) as usize
+    }
+    pub fn is_within(&self, b: &Board) -> bool {
+        self.0 < b.width.get() as u32 && self.1 < b.height.get() as u32
+    }
 }
+impl TryInto<(isize,isize)> for BoardPos {
+    type Error = <usize as TryInto<isize>>::Error;
+    fn try_into(self) -> Result<(isize,isize), Self::Error> {
+        Ok((self.0.try_into()?, self.1.try_into()?))
+    }
+}
+impl<T: TryInto<u32>> TryFrom<(T,T)> for BoardPos {
+    type Error = <T as TryInto<u32>>::Error;
+    fn try_from(value: (T,T)) -> Result<Self, Self::Error> {
+        Ok(Self(value.0.try_into()?, value.1.try_into()?))
+    }
+}
+
 pub fn is_mine(v: u8) -> bool {
     (v & TILE_NUMBITS) == TILE_NUMBITS
 }

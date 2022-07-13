@@ -77,9 +77,9 @@ pub async fn drive_conn(conn: (Conn, SplitStream<WebSocket>), rinfo: (RoomId, Ar
             };
 
             let mut fields = cmd.split(" ");
-            let parse_pos = |mut fields: std::str::Split<&str>| -> Option<(usize, usize)> {
-                let x = fields.next().and_then(|xstr| xstr.parse::<usize>().ok());
-                let y = fields.next().and_then(|ystr| ystr.parse::<usize>().ok());
+            let parse_pos = |mut fields: std::str::Split<&str>| -> Option<(u32, u32)> {
+                let x = fields.next().and_then(|xstr| xstr.parse::<u32>().ok());
+                let y = fields.next().and_then(|ystr| ystr.parse::<u32>().ok());
                 x.zip(y)
             };
             if let Some(cmd_name) = fields.next() {
@@ -100,7 +100,9 @@ pub async fn drive_conn(conn: (Conn, SplitStream<WebSocket>), rinfo: (RoomId, Ar
                         "reveal" => {
                             match parse_pos(fields) {
                                 Some(pos) => {
-                                    if let Err(e) = cmd_tx.send(MetaMove::Move(Move { t: MoveType::Reveal, pos }, conn.addr)) {
+                                    if let Err(e) = cmd_tx.send(MetaMove::Move(
+                                            Move {t: MoveType::Reveal, pos: pos.try_into().unwrap() }, conn.addr))
+                                    {
                                         println!("{room_id} E: couldn't process {me}'s reveal command: {e}");
                                     };
                                 },
@@ -112,7 +114,9 @@ pub async fn drive_conn(conn: (Conn, SplitStream<WebSocket>), rinfo: (RoomId, Ar
                         "flag" => {
                             match parse_pos(fields) {
                                 Some(pos) => {
-                                    if let Err(e) = cmd_tx.send(MetaMove::Move(Move { t: MoveType::ToggleFlag, pos }, conn.addr)) {
+                                    if let Err(e) = cmd_tx.send(MetaMove::Move(
+                                            Move { t: MoveType::ToggleFlag, pos: pos.try_into().unwrap() }, conn.addr))
+                                    {
                                         println!("{room_id} E: couldn't process {me}'s flag command: {e}");
                                     };
                                 },

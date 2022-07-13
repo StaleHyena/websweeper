@@ -228,10 +228,10 @@ async fn gameloop(moves: MoveStreamHandles, players: Arc<RwLock<PlayerMap>>, bco
         let done = |p: &Phase| { *p == Phase::Die || *p == Phase::Win };
         match req {
             MetaMove::Move(m, o) => if !done(&game.phase) {
-                game = game.act(m);
+                game.act(m);
                 desynced = true;
                 if done(&game.phase) {
-                    game.board = game.board.grade();
+                    game.board.grade();
                     final_player_name = players.read().await.get(&o).map(|p| p.name.clone());
                 }
                 move_tx.send(MetaMove::StateSync).unwrap();

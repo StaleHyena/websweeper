@@ -7,7 +7,7 @@ use tokio::time::{self, Duration};
 use warp::ws::Message;
 
 pub enum ReqData {
-    Pos((usize,usize)),
+    Pos((u32,u32)),
     StateDump,
     Quit,
 }
@@ -69,7 +69,7 @@ pub async fn livepos(players: Arc<RwLock<PlayerMap>>, mut recv: tokio_mpsc::Unbo
     );
 }
 
-fn jsonenc_ids<'a, I: IntoIterator<Item=&'a usize>>(positions: &mut HashMap<usize, (usize,usize)>, ids: I) -> Result<String, serde_json::Error> {
+fn jsonenc_ids<'a, I: IntoIterator<Item=&'a usize>>(positions: &mut HashMap<usize, (u32,u32)>, ids: I) -> Result<String, serde_json::Error> {
     let mut pairs = Vec::new();
     for id in ids {
         pairs.push((id, positions[id]));
