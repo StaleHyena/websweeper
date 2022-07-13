@@ -35,6 +35,7 @@ pub struct BoardConf {
     pub always_safe_first_move: bool,
     pub revealed_borders: bool,
     pub reveal_on_lose: bool,
+    pub num_tile_reveal: bool,
 }
 
 impl std::fmt::Display for BoardConf {
@@ -49,6 +50,7 @@ pub struct Board {
     pub height: NonZeroUsize,
     pub hidden_tiles: usize,
     pub mine_count: usize,
+    pub num_tile_reveal: bool,
 }
 #[derive(Debug)]
 pub enum MoveType {
@@ -120,6 +122,7 @@ impl Board {
             height: h,
             hidden_tiles: area,
             mine_count,
+            num_tile_reveal: conf.num_tile_reveal,
         };
         if conf.revealed_borders {
             let (w,h) = (w.get(),h.get());
@@ -210,7 +213,7 @@ impl Board {
     pub fn reveal(&mut self, pos: BoardPos) -> bool {
         if let Some(off) = pos.rel_offset(&self) {
             let v = self.data[off];
-            if 1 <= v && v <= 8 {
+            if self.num_tile_reveal && 1 <= v && v <= 8 {
                 self.reveal_numtile(pos)
             } else {
                 self.flood_reveal(pos)

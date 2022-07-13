@@ -309,7 +309,7 @@ async fn empty_rooms(rooms: &RoomMap) -> Vec<RoomId> {
 }
 
 fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> Result<(types::Room, bool), Rejection> {
-    if let (Some(w),Some(h),Some(num),Some(denom),public,asfm,rborders,revealol,Some(limit)) = (
+    if let (Some(w),Some(h),Some(num),Some(denom),public,asfm,rborders,revealol,ntiler,Some(limit)) = (
         rinfo.get("bwidth").and_then(|w| w.parse::<NonZeroUsize>().ok()),
         rinfo.get("bheight").and_then(|h| h.parse::<NonZeroUsize>().ok()),
         rinfo.get("mineratio-n").and_then(|n| n.parse::<usize>().ok()),
@@ -318,6 +318,7 @@ fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> R
         rinfo.get("allsafe1move").map(|s| s == "on").unwrap_or(false),
         rinfo.get("rborders").map(|s| s == "on").unwrap_or(false),
         rinfo.get("revealonlose").map(|s| s == "on").unwrap_or(false),
+        rinfo.get("numtilereveal").map(|s| s == "on").unwrap_or(false),
         rinfo.get("limit").and_then(|l| l.parse::<NonZeroUsize>().ok()),
         ) {
         if w.get()*h.get() > conf.limits.board_area {
@@ -325,7 +326,8 @@ fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> R
         }
         let board_conf = minesweeper::BoardConf {
             w, h, mine_ratio: (num,denom),
-            always_safe_first_move: asfm, revealed_borders: rborders, reveal_on_lose: revealol
+            always_safe_first_move: asfm, revealed_borders: rborders,
+            reveal_on_lose: revealol, num_tile_reveal: ntiler,
         };
         let name = {
             let n = rinfo.get("rname").unwrap().to_owned();
