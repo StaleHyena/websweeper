@@ -7,25 +7,29 @@
     <link rel="stylesheet" type="text/css" href="../style.css">
   </head>
   <body>
-    <div>
-      <div id="board-container">
-      <span id="board"></span>
-      <div id="cursor-frame"></div>
+    <form id="identform" style="display: none" action="javascript:;" onsubmit="join()">
+      <input id="name-in" type="text" value="anon">
+      <input id="clr-in" type="color" value="#33c033"></input>
+      <button>Join</button>
+    </form>
+    <div id="splitscreen">
+      <div>
+        <div id="board-container">
+          <span id="board"></span>
+  <div id="cursor-frame"></div>
+        </div>
+        <div class="statusline">
+          <p id="miscinfo"></p>
+          <div>
+            <span id="volbutton" style="margin-right: 0">🔈</span>
+            <input id="volslider" type="range" min="0" max="1" step="0.01">
+          </div>
+          <a href="javascript:navigator.clipboard.writeText(window.location.href);alert('copied link to clipboard');">🔗share</p>
+          <a href="javascript:clear_ident();">new identity</p>
+          <a href="..">back to lobby</a>
+        </div>
       </div>
-      <form id="identform" style="display: none" action="javascript:;" onsubmit="join()">
-        <input id="name-in" type="text" value="anon">
-        <input id="clr-in" type="color" value="#33c033"></input>
-        <button>Join</button>
-      </form>
-      <div class="statusline">
-        <p id="miscinfo"></p>
-        <div>
-          <span id="volbutton" style="margin-right: 0">🔈</span>
-          <input id="volslider" type="range" min="0" max="1" step="0.01"></div>
-        <a href="javascript:navigator.clipboard.writeText(window.location.href);alert('copied link to clipboard');">🔗share</p>
-        <a href="javascript:clear_ident();">new identity</p>
-        <a href="..">back to lobby</a>
-      </div>
+      <div id="chat-div"></div>
     </div>
   </body>
   <script src="https://unpkg.com/fflate"></script>

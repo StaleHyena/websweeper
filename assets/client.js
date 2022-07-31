@@ -6,7 +6,8 @@ window.elem = {
   bcont: document.getElementById("board-container"),
   board: document.getElementById("board"),
   cursor_frame: document.getElementById("cursor-frame"),
-  volslider: document.getElementById("volslider")
+  volslider: document.getElementById("volslider"),
+  chat_div: document.getElementById("chat-div")
 };
 const U32MAX = Math.pow(2,32) - 1;
 
@@ -124,6 +125,7 @@ function connect() {
           room.bconf.h = Number(dims[1]);
           room.bconf.mine_ratio = fields[5];
           createCursor(player.uid, name, room.identity.clr);
+          setup_chat(name, room.name);
         } break;
         case "win": {
           elem.info.innerHTML = "You win! Click here to play again.";
@@ -236,8 +238,8 @@ function pageToBoard(x,y) {
 
 function boardToPage(b) {
   return [
-    b[0] * (room.cbounds.w / U32MAX) + room.cbounds.ox,
-    b[1] * (room.cbounds.h / U32MAX) + room.cbounds.ox
+    b[0] * (room.cbounds.w / U32MAX),
+    b[1] * (room.cbounds.h / U32MAX)
   ];
 }
 
@@ -324,3 +326,11 @@ volChanged();
     heartbeat();
   }, 30000);
 })();
+
+function setup_chat(name, room_name) {
+  let chat_iframe = document.createElement("iframe");
+  // FIXME the url should come from the server
+  chat_iframe.setAttribute("src", "/gamja?channels=" + encodeURIComponent(`#mines-${room_name}`) + "&nick=" + encodeURIComponent(name));
+  elem.chat_div.appendChild(chat_iframe);
+}
+
