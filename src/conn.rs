@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use futures::{SinkExt, TryStreamExt, StreamExt, stream::SplitStream};
 use warp::ws::{ WebSocket, Message };
 use crate::livepos;
+use crate::ircbot;
 
 pub async fn setup_conn(socket: WebSocket, addr: SocketAddr, rinfo: (RoomId,Arc<RwLock<Room>>), max_in: usize) {
     let (room_id, room) = rinfo;
@@ -61,9 +62,9 @@ pub async fn setup_conn(socket: WebSocket, addr: SocketAddr, rinfo: (RoomId,Arc<
 pub async fn drive_conn(conn: (Conn, SplitStream<WebSocket>), rinfo: (RoomId, Arc<RwLock<Room>>), max_in: usize) {
     let (conn, mut incoming) = conn;
     let (room_id, room) = rinfo;
-    let (players, cmd_tx, pos_tx, room_conf) = {
+    let (players, cmd_tx, pos_tx, irc_tx, room_conf) = {
         let room = room.read().await;
-        (room.players.clone(), room.cmd_stream.clone(), room.pos_stream.clone(), room.conf.clone())
+        (room.players.clone(), room.cmd_stream.clone(), room.pos_stream.clone(), room.irc_stream.clone(), room.conf.clone())
     };
     while let Ok(cmd) = incoming.try_next().await {
         if let Some(cmd) = cmd {
@@ -144,33 +145,42 @@ pub async fn drive_conn(conn: (Conn, SplitStream<WebSocket>), rinfo: (RoomId, Ar
                                     if n.is_empty() { def } else { n }
                                 }
                             };
-                            println!("{room_id} I: registered \"{name}@{}\"", conn.addr);
-                            drop(players_lock);
-                            let uid = {
-                                // new scope cuz paranoid bout deadlocks
-                                room.write().await.players.write().await.insert_conn(conn.clone(), name.clone(), clr)
-                            };
-                            let players_lock = players.read().await;
-                            let me = players_lock.get(&conn.addr).unwrap();
-                            conn.tx.send(Message::text(format!("regack {} {} {} {}",
-                                    room_conf.name.replace(' ', "&nbsp;"), name.replace(' ', "&nbsp;"), uid, room_conf.board_conf))
-                            ).expect("couldn't send register ack");
 
-                            {
-                                let msg = Message::text(format!("players {}",
-                                            jsonenc_players(players_lock.values())
-                                            .expect("couldn't JSONify players")));
-                                for p in players_lock.values() {
-                                    if let Err(e) = p.conn.tx.send(msg.clone()) {
-                                        println!("{room_id} E: couldn't dump players for {me}: {e}");
+                            let (nameq_tx, nameq_rx) = tokio::sync::oneshot::channel();
+                            irc_tx.send(ircbot::IrcCmd::NameTakenQuery(name.clone(), nameq_tx)).expect("couldn't check for name collision");
+
+                            if nameq_rx.await.unwrap() {
+                                println!("{room_id} I: name collision \"{name}@{}\"", conn.addr);
+                                conn.tx.send(Message::text("namecoll")).expect("couldn't send name collision report");
+                            } else {
+                                println!("{room_id} I: registered \"{name}@{}\"", conn.addr);
+                                drop(players_lock);
+                                let uid = {
+                                    // new scope cuz paranoid bout deadlocks
+                                    room.write().await.players.write().await.insert_conn(conn.clone(), name.clone(), clr)
+                                };
+                                let players_lock = players.read().await;
+                                let me = players_lock.get(&conn.addr).unwrap();
+                                conn.tx.send(Message::text(format!("regack {} {} {} {}",
+                                                                   room_conf.name.replace(' ', "&nbsp;"), name.replace(' ', "&nbsp;"), uid, room_conf.board_conf))
+                                            ).expect("couldn't send register ack");
+
+                                {
+                                    let msg = Message::text(format!("players {}",
+                                                                    jsonenc_players(players_lock.values())
+                                                                    .expect("couldn't JSONify players")));
+                                    for p in players_lock.values() {
+                                        if let Err(e) = p.conn.tx.send(msg.clone()) {
+                                            println!("{room_id} E: couldn't dump players for {me}: {e}");
+                                        }
                                     }
                                 }
-                            }
-                            if let Err(e) = pos_tx.send(livepos::Req { id: uid, data: livepos::ReqData::StateDump }) {
-                                println!("{room_id} E: couldn't request position dump for {me}: {e}");
-                            }
-                            if let Err(e) = cmd_tx.send(MetaMove::StateDump) {
-                                println!("{room_id} E: couldn't request game dump for {me}: {e}");
+                                if let Err(e) = pos_tx.send(livepos::Req { id: uid, data: livepos::ReqData::StateDump }) {
+                                    println!("{room_id} E: couldn't request position dump for {me}: {e}");
+                                }
+                                if let Err(e) = cmd_tx.send(MetaMove::StateDump) {
+                                    println!("{room_id} E: couldn't request game dump for {me}: {e}");
+                                }
                             }
                         }
                     }

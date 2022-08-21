@@ -4,7 +4,7 @@ use std::{
     sync::{
         Arc,
         atomic::{ AtomicUsize, Ordering },
-    },
+},
     fmt::Display,
     ops::{ Deref, DerefMut },
     num::NonZeroUsize,
@@ -14,6 +14,7 @@ use tokio::sync::RwLock;
 use serde::Serialize;
 use crate::minesweeper;
 use crate::livepos;
+use crate::ircbot;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct RoomConf {
@@ -30,6 +31,8 @@ pub struct Room {
     pub cmd_stream: CmdTx,
     pub livepos_driver: tokio::task::JoinHandle<()>,
     pub pos_stream: tokio::sync::mpsc::UnboundedSender<livepos::Req>,
+    pub irc_driver: tokio::task::JoinHandle<()>,
+    pub irc_stream: tokio::sync::mpsc::UnboundedSender<ircbot::IrcCmd>,
 }
 
 #[derive(Debug)]

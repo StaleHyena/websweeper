@@ -14,6 +14,7 @@ mod types;
 mod livepos;
 mod conn;
 mod minesweeper;
+mod ircbot;
 use types::*;
 
 const CONF_FILE: &str = "./conf.json";
@@ -42,6 +43,7 @@ struct Conf {
     pub paths: ConfPaths,
     pub server: ConfServer,
     pub limits: ConfLimits,
+    pub irc: ircbot::IrcConf,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -215,7 +217,7 @@ async fn tokio_main(conf: Conf) -> Result<(), Box<dyn Error>> {
 
 // If a move is made, broadcast new board, else just send current board
 type MoveStreamHandles = (tokio::sync::mpsc::UnboundedSender<MetaMove>, tokio::sync::mpsc::UnboundedReceiver<MetaMove>);
-async fn gameloop(moves: MoveStreamHandles, players: Arc<RwLock<PlayerMap>>, bconf: minesweeper::BoardConf) {
+async fn gameloop(moves: MoveStreamHandles, irc_tx: ircbot::IrcCmdTx, players: Arc<RwLock<PlayerMap>>, bconf: minesweeper::BoardConf) {
     // FIXME: push new board if and only if there aren't any remaining commands in the queue
     use minesweeper::*;
     use flate2::{ Compression, write::DeflateEncoder };
@@ -245,10 +247,20 @@ async fn gameloop(moves: MoveStreamHandles, players: Arc<RwLock<PlayerMap>>, bco
                 board_encoder.write_all(&game.board.render()).unwrap();
                 let compressed_board = board_encoder.finish().unwrap();
                 let mut reply = vec![Message::binary(compressed_board)];
-                let lpname = final_player_name.as_deref().unwrap_or("unknown player").replace(' ', "&nbsp");
+                let lpname = final_player_name.as_deref().unwrap_or("unknown player");
                 match game.phase {
-                    Phase::Win => { reply.push(Message::text(format!("win {lpname}"))); },
-                    Phase::Die => { reply.push(Message::text(format!("lose {lpname}"))); },
+                    Phase::Win => {
+                        reply.push(Message::text(format!("win {lpname}")));
+                        if let Err(e) = irc_tx.send(ircbot::IrcCmd::GameWin(lpname.to_string())) {
+                            println!("couldn't send irc win message: {e}");
+                        }
+                    },
+                    Phase::Die => {
+                        reply.push(Message::text(format!("lose {lpname}")));
+                        if let Err(e) = irc_tx.send(ircbot::IrcCmd::GameLose(lpname.to_string())) {
+                            println!("couldn't send irc lose message: {e}");
+                        }
+                    },
                     _ => (),
                 }
                 let peers = players.read().await;
@@ -336,18 +348,21 @@ fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> R
 
         let players = Arc::new(RwLock::new(PlayerMap::default()));
 
-        let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
-        let game_handle = tokio::spawn(gameloop((cmd_tx.clone(), cmd_rx), players.clone(), board_conf));
-
-        let (pos_tx, pos_rx) = tokio::sync::mpsc::unbounded_channel();
-        let livepos_handle = tokio::spawn(livepos::livepos(players.clone(), pos_rx));
-
         let room_conf = RoomConf {
             name,
             player_cap: limit,
             public,
             board_conf,
         };
+
+        let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (irc_tx, irc_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (pos_tx, pos_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let irc_handle = tokio::spawn(ircbot::manage_irc_channel(conf.irc.clone(), room_conf.clone(), cmd_tx.clone(), irc_rx));
+        let game_handle = tokio::spawn(gameloop((cmd_tx.clone(), cmd_rx), irc_tx.clone(), players.clone(), board_conf));
+        let livepos_handle = tokio::spawn(livepos::livepos(players.clone(), pos_rx));
+
         Ok((Room {
             conf: room_conf,
             players,
@@ -355,6 +370,8 @@ fn room_from_form(uid: RoomId, rinfo: &HashMap<String,String>, conf: &Conf) -> R
             cmd_stream: cmd_tx,
             livepos_driver: livepos_handle,
             pos_stream: pos_tx,
+            irc_driver: irc_handle,
+            irc_stream: irc_tx,
         }, public))
     } else { Err(warp::reject::custom(BadFormData)) }
 }

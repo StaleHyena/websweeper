@@ -7,10 +7,13 @@ use serde::Serialize;
 
 const HIDDEN_BIT: u8 = 1 << 7;
 pub const FLAGGED_BIT: u8 = 1 << 6;
-const CORRECT_BIT: u8 = 1 << 5; // grading for a rightly flagged mine
+const SPECIAL_BIT: u8 = 1 << 5; // grading for a rightly flagged mine, or the question flag
 // all the bits that aren't flags
-const TILE_NUMBITS: u8 = !(HIDDEN_BIT | FLAGGED_BIT | CORRECT_BIT);
-const MINED: u8 = HIDDEN_BIT | TILE_NUMBITS;
+const NUMBITS: u8 = !(HIDDEN_BIT | FLAGGED_BIT | SPECIAL_BIT);
+const MINED: u8 = HIDDEN_BIT | NUMBITS;
+const QUESTION: u8 = FLAGGED_BIT | SPECIAL_BIT;
+const CORRECT: u8 = MINED | SPECIAL_BIT;
+
 #[derive(PartialEq)]
 pub enum Phase {
     SafeFirstMove,
@@ -182,7 +185,9 @@ impl Board {
         while let Some(pos) = queue.pop() {
             let off = pos.rel_offset_unchecked(&self);
             let c = &mut self.data[off];
-            if *c & HIDDEN_BIT > 0 {
+            // don't reveal the already revealed or the flagged, but reveal the questionings
+            let unrevealable = (*c & FLAGGED_BIT > 0) ^ (*c & SPECIAL_BIT > 0);
+            if *c & HIDDEN_BIT > 0 && !unrevealable {
                 *c = unhide(*c);
                 self.hidden_tiles -= 1;
                 if is_mine(*c) { return true; }
@@ -198,7 +203,7 @@ impl Board {
             if 1 <= count && count <= 8 {
                 let mut neighs = self.neighs(pos);
                 let total_neighs = neighs.len();
-                neighs.retain(|pos| self.data[pos.rel_offset_unchecked(&self)] & FLAGGED_BIT == 0);
+                neighs.retain(|pos| self.data[pos.rel_offset_unchecked(&self)] & (FLAGGED_BIT | SPECIAL_BIT) != FLAGGED_BIT);
                 if (total_neighs - neighs.len()) == count {
                     for pos in neighs.iter() {
                         if self.flood_reveal(*pos) {
@@ -223,14 +228,23 @@ impl Board {
 
     pub fn grade(&mut self) {
         for i in &mut self.data {
-            if *i == TILE_NUMBITS | FLAGGED_BIT | HIDDEN_BIT {
-                *i |= CORRECT_BIT;
+            if *i == MINED | FLAGGED_BIT {
+                *i = CORRECT;
             }
         }
     }
     pub fn flag(&mut self, pos: BoardPos) {
         if let Some(off) = pos.rel_offset(&self) {
-            self.data[off] ^= FLAGGED_BIT;
+            const TOPBIT_MASK: u8 = !(NUMBITS | HIDDEN_BIT);
+            let c = &mut self.data[off];
+            if *c & HIDDEN_BIT > 0 {
+                let new_topbits = match *c & (TOPBIT_MASK) {
+                    FLAGGED_BIT => QUESTION,
+                    QUESTION => 0,
+                    _ => FLAGGED_BIT,
+                } | HIDDEN_BIT;
+                *c = (*c & NUMBITS) | new_topbits;
+            }
         }
     }
 
@@ -240,13 +254,15 @@ impl Board {
             for x in 0..self.width.get() {
                 let pos: BoardPos = (x,y).try_into().unwrap();
                 let c = &self.data[pos.rel_offset_unchecked(&self)];
+                const QUESTION_MASK: u8 = SPECIAL_BIT | FLAGGED_BIT;
                 match *c {
                     0 => ret.push(b' '),
                     _ if *c <= 8 => ret.push(b'0' + c),
-                    _ if (*c & CORRECT_BIT) > 0 => ret.push(b'C'),
+                    _ if (*c & QUESTION_MASK) == QUESTION_MASK => ret.push(b'Q'),
+                    _ if (*c & SPECIAL_BIT) > 0 => ret.push(b'C'),
                     _ if (*c & FLAGGED_BIT) > 0 => ret.push(b'F'),
                     _ if (*c & HIDDEN_BIT) > 0 => ret.push(b'#'),
-                    _ if *c == TILE_NUMBITS => ret.push(b'O'),
+                    _ if *c == NUMBITS => ret.push(b'O'),
                     _ => ret.push(b'?'),
                 }
             }
@@ -268,7 +284,7 @@ impl Board {
         let vacant_pos = {
             let v = self.data.iter()
                 .enumerate()
-                .filter(|(_,val)| (*val & TILE_NUMBITS) != TILE_NUMBITS)
+                .filter(|(_,val)| (*val & NUMBITS) != NUMBITS)
                 .map(|(p,_)| p)
                 .next()
                 .unwrap(); // there must be at least one
@@ -315,10 +331,10 @@ impl<T: TryInto<u32>> TryFrom<(T,T)> for BoardPos {
 }
 
 pub fn is_mine(v: u8) -> bool {
-    (v & TILE_NUMBITS) == TILE_NUMBITS
+    (v & NUMBITS) == NUMBITS
 }
 pub fn unhide(tile: u8) -> u8 {
-    tile & !(HIDDEN_BIT | FLAGGED_BIT)
+    tile & NUMBITS
 }
 
 

@@ -168,7 +168,7 @@ function acceptBoard(data) {
   let split_board = [];
   for (let i = 1; i < room.board.length+1; i++) {
     let cur = room.board[i];
-    let gamechars = /^[CFO# 1-8]+$/;
+    let gamechars = /^[CFQO# 1-8]+$/;
     if ((cur != last && gamechars.test(cur)) || cur == undefined) {
       let txt = room.board.substr(last_idx, i-last_idx);
       switch(txt[0]) {
@@ -180,6 +180,10 @@ function acceptBoard(data) {
           break;
         case 'F':
           txt = `<span style="color:yellow;">${txt}</span>`;
+          break;
+        case 'Q':
+          txt = txt.replaceAll("Q", "?");
+          txt = `<span style="color:purple;">${txt}</span>`;
           break;
 
         case '1': txt = `<span style="color:#0100FB;">${txt}</span>`; break;

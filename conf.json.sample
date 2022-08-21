@@ -16,5 +16,10 @@
     "room_slots": 16,
     "form_size": 4096,
     "inbound_packet_size": 2048
+  },
+
+  "irc": {
+    "server": "0.0.0.0",
+    "port": 6697
   }
 }
