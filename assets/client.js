@@ -125,7 +125,6 @@ function connect() {
           room.bconf.h = Number(dims[1]);
           room.bconf.mine_ratio = fields[5];
           createCursor(player.uid, name, room.identity.clr);
-          setup_chat(name, room.name);
         } break;
         case "win": {
           elem.info.innerHTML = "You win! Click here to play again.";
@@ -330,11 +329,4 @@ volChanged();
     heartbeat();
   }, 30000);
 })();
-
-function setup_chat(name, room_name) {
-  let chat_iframe = document.createElement("iframe");
-  // FIXME the url should come from the server
-  chat_iframe.setAttribute("src", "/gamja?channels=" + encodeURIComponent(`#mines-${room_name}`) + "&nick=" + encodeURIComponent(name));
-  elem.chat_div.appendChild(chat_iframe);
-}
 
